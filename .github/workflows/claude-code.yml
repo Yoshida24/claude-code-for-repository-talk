@@ -1,0 +1,79 @@
+name: claude-code
+
+on:
+  repository_dispatch:
+    types: [claude-query]
+
+jobs:
+  claude-query-job:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'claude-query'
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Claude CLI
+        run: |
+          npm install -g @anthropic-ai/claude-code
+
+      - name: Execute Claude query
+        id: claude-exec
+        run: |
+          # クエリとシステムプロンプトを環境変数から取得
+          QUERY="${{ github.event.client_payload.query }}"
+          SYSTEM_PROMPT="${{ github.event.client_payload.system_prompt }}"
+          
+          # Claudeコマンドを実行し、結果をファイルに保存
+          echo "Executing Claude query..."
+          ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" claude -p "$QUERY" --system-prompt "$SYSTEM_PROMPT" > claude_result.txt 2>&1 || echo "Claude command failed" >> claude_result.txt
+          
+          # 結果を環境変数に設定（GitHub Actionsの制限に対応）
+          echo "CLAUDE_RESULT<<EOF" >> $GITHUB_ENV
+          cat claude_result.txt >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Create Issue with Claude result
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const claudeResult = process.env.CLAUDE_RESULT;
+            const query = "${{ github.event.client_payload.query }}";
+            const systemPrompt = "${{ github.event.client_payload.system_prompt }}";
+            
+            const issueTitle = `Claude Query Result - ${new Date().toISOString().split('T')[0]}`;
+            // ここに実行者のIDをcontextから取得
+            const userName = context.payload.sender.login;
+            const userId = context.payload.sender.id;
+
+            const issueBody = `## Claude Query Execution Result
+            ${userId} / ${userName}
+
+            **Query:**
+            ${query}
+
+            **System Prompt:**
+            ${systemPrompt}
+
+            **Result:**
+            ${claudeResult}
+
+            *Generated automatically by GitHub Actions*`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: issueTitle,
+              body: issueBody,
+              labels: ['claude-query', 'automated']
+            });
