@@ -10,7 +10,7 @@ jobs:
     if: github.event.action == 'claude-query'
     permissions:
       contents: read
-      issues: write
+      issues: read # Issueを書く場合はwrite
       id-token: write
     steps:
       - name: Checkout repository
@@ -34,46 +34,25 @@ jobs:
           QUERY="${{ github.event.client_payload.query }}"
           SYSTEM_PROMPT="${{ github.event.client_payload.system_prompt }}"
           
-          # Claudeコマンドを実行し、結果をファイルに保存
-          echo "Executing Claude query..."
-          ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" claude -p "$QUERY" --system-prompt "$SYSTEM_PROMPT" > claude_result.txt 2>&1 || echo "Claude command failed" >> claude_result.txt
+          echo "🤖 Claude Query Execution"
+          echo "=========================="
+          echo "Query: $QUERY"
+          echo "System Prompt: $SYSTEM_PROMPT"
+          echo ""
+          echo "🔄 Executing Claude query..."
+          echo ""
+
+          # Claudeコマンドを実行
+          ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" claude -p "$QUERY" --system-prompt "$SYSTEM_PROMPT" 2>&1 || {
+            echo "❌ Claude command failed"
+            exit 1
+          }
           
-          # 結果を環境変数に設定（GitHub Actionsの制限に対応）
-          echo "CLAUDE_RESULT<<EOF" >> $GITHUB_ENV
-          cat claude_result.txt >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          echo ""
+          echo "✅ Query execution completed!"
 
-      - name: Create Issue with Claude result
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const claudeResult = process.env.CLAUDE_RESULT;
-            const query = "${{ github.event.client_payload.query }}";
-            const systemPrompt = "${{ github.event.client_payload.system_prompt }}";
-            
-            const issueTitle = `Claude Query Result - ${new Date().toISOString().split('T')[0]}`;
-            // ここに実行者のIDをcontextから取得
-            const userName = context.payload.sender.login;
-            const userId = context.payload.sender.id;
-
-            const issueBody = `## Claude Query Execution Result
-            ${userId} / ${userName}
-
-            **Query:**
-            ${query}
-
-            **System Prompt:**
-            ${systemPrompt}
-
-            **Result:**
-            ${claudeResult}
-
-            *Generated automatically by GitHub Actions*`;
-
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: issueTitle,
-              body: issueBody,
-              labels: ['claude-query', 'automated']
-            });
+      - name: Output completion message
+        run: |
+          echo ""
+          echo "🎉 Claude query execution finished successfully!"
+          echo "Check the logs above for the detailed results."

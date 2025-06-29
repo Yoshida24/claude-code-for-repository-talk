@@ -15,38 +15,71 @@ fmt:
 test:
 	@uvx pytest
 
-.PHONY: claude-query
-claude-query:
-	@echo "=== Triggering Claude Query Action ==="
-	@echo '{"event_type": "claude-query", "client_payload": {"query": "このリポジトリのREADME.mdからサマリを作成してください", "system_prompt": "あなたは最高のエンジニアです。"}}' \
-		| gh api --method POST --header "Accept: application/vnd.github.v3+json" \
-		/repos/Yoshida24/claude-code-for-repository-talk/dispatches --input -
-	@echo ""
-	@echo "=== Waiting for Action to start ==="
-	@sleep 5
-	@echo "=== Getting latest workflow run ==="
-	@RUN_URL=$$(gh run list --repo Yoshida24/claude-code-for-repository-talk --workflow=claude-code.yml --limit=1 --json url --jq '.[0].url'); \
-	echo "Action started: $$RUN_URL"; \
-	RUN_ID=$$(gh run list --repo Yoshida24/claude-code-for-repository-talk --workflow=claude-code.yml --limit=1 --json databaseId --jq '.[0].databaseId'); \
-	echo "Run ID: $$RUN_ID"; \
+# AI query execution with arguments support
+# Usage: make ai "your query here" [--system_prompt "custom system prompt"]
+.PHONY: ai
+ai:
+	@if [ -z "$(filter-out ai,$(MAKECMDGOALS))" ]; then \
+		echo "❌ Usage: make ai \"your query here\""; \
+		echo "💡 Set SYSTEM_PROMPT environment variable to customize the system prompt"; \
+		echo "📝 Example: make ai \"このリポジトリの概要を教えて\""; \
+		echo "📝 Example: SYSTEM_PROMPT=\"あなたは優秀なコードレビュアーです\" make ai \"コードを解析して\""; \
+		exit 1; \
+	fi
+	@echo "🚀 Starting Claude AI Query..."
+	@echo "================================"
+	@QUERY="$(wordlist 2,999,$(MAKECMDGOALS))"; \
+	SYSTEM_PROMPT="$${SYSTEM_PROMPT:-あなたは最高のエンジニアです。}"; \
+	echo "💭 Query: $$QUERY"; \
+	echo "🧠 System Prompt: $$SYSTEM_PROMPT"; \
 	echo ""; \
-	echo "=== Monitoring workflow status ==="; \
+	echo "📤 Dispatching to GitHub Actions..."; \
+	DISPATCH_PAYLOAD=$$(printf '{"event_type": "claude-query", "client_payload": {"query": "%s", "system_prompt": "%s"}}' "$$QUERY" "$$SYSTEM_PROMPT"); \
+	DISPATCH_RESULT=$$(echo "$$DISPATCH_PAYLOAD" | gh api --method POST --header "Accept: application/vnd.github.v3+json" /repos/Yoshida24/claude-code-for-repository-talk/dispatches --input - 2>&1); \
+	if [ $$? -eq 0 ]; then \
+		echo "✅ Successfully dispatched to GitHub Actions"; \
+	else \
+		echo "❌ Failed to dispatch: $$DISPATCH_RESULT"; \
+		exit 1; \
+	fi; \
+	echo ""; \
+	echo "⏳ Waiting for Action to start..."; \
+	sleep 5; \
+	echo "🔍 Getting workflow run information..."; \
+	RUN_DATA=$$(gh run list --repo Yoshida24/claude-code-for-repository-talk --workflow=claude-code.yml --limit=1 --json databaseId,url,status,conclusion); \
+	RUN_ID=$$(echo "$$RUN_DATA" | jq -r '.[0].databaseId'); \
+	RUN_URL=$$(echo "$$RUN_DATA" | jq -r '.[0].url'); \
+	echo "🔗 Action URL: $$RUN_URL"; \
+	echo "🆔 Run ID: $$RUN_ID"; \
+	echo ""; \
+	echo "📊 Monitoring execution progress..."; \
 	while true; do \
-		STATUS=$$(gh run view $$RUN_ID --repo Yoshida24/claude-code-for-repository-talk --json status --jq '.status'); \
-		CONCLUSION=$$(gh run view $$RUN_ID --repo Yoshida24/claude-code-for-repository-talk --json conclusion --jq '.conclusion'); \
-		echo "Status: $$STATUS, Conclusion: $$CONCLUSION"; \
+		RUN_INFO=$$(gh run view $$RUN_ID --repo Yoshida24/claude-code-for-repository-talk --json status,conclusion); \
+		STATUS=$$(echo "$$RUN_INFO" | jq -r '.status'); \
+		CONCLUSION=$$(echo "$$RUN_INFO" | jq -r '.conclusion'); \
+		printf "\r🔄 Status: $$STATUS"; \
+		if [ "$$CONCLUSION" != "null" ]; then \
+			printf " | Result: $$CONCLUSION"; \
+		fi; \
 		if [ "$$STATUS" = "completed" ]; then \
 			echo ""; \
-			echo "=== Workflow completed! ==="; \
+			if [ "$$CONCLUSION" = "success" ]; then \
+				echo "✅ Workflow completed successfully!"; \
+			else \
+				echo "❌ Workflow failed with conclusion: $$CONCLUSION"; \
+			fi; \
 			break; \
 		fi; \
-		echo "Waiting 5 seconds..."; \
 		sleep 5; \
 	done; \
 	echo ""; \
-	echo "=== Getting latest issue (result) ==="; \
-	LATEST_ISSUE=$$(gh issue list --repo Yoshida24/claude-code-for-repository-talk --label claude-query --limit 1 --json number --jq '.[0].number'); \
-	echo "Latest issue number: $$LATEST_ISSUE"; \
+	echo "📋 Fetching execution logs..."; \
+	echo "================================"; \
+	gh run view $$RUN_ID --repo Yoshida24/claude-code-for-repository-talk --log; \
 	echo ""; \
-	echo "=== Claude Query Result ==="; \
-	gh issue view $$LATEST_ISSUE --repo Yoshida24/claude-code-for-repository-talk
+	echo "🎉 Query execution completed!"; \
+	echo "🔗 View full logs: $$RUN_URL"
+
+# Prevent Make from treating arguments as targets
+%:
+	@:
