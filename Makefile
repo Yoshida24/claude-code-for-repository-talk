@@ -15,73 +15,43 @@ fmt:
 test:
 	@uvx pytest
 
-# AI query execution with arguments support
-# Usage: make ai "your query here" [--system_prompt "custom system prompt"]
+# リポジトリに対する AI query を実行するクライアント側のラッパー。
+# ex. make ai "your query"
+# query.js を呼び出しやすくするために作ったもの。色々書いてあるが、要はテストしやすい環境変数を定義して、かつログを出しているだけで、真面目に読む必要はない。
+# デフォルトではコマンドは `Yoshida24/claude-code-for-repository-talk` に対して実行されるようにした。
 .PHONY: ai
 ai:
-	@if [ -z "$(filter-out ai,$(MAKECMDGOALS))" ]; then \
-		echo "❌ Usage: make ai \"your query here\""; \
-		echo "💡 Set SYSTEM_PROMPT environment variable to customize the system prompt"; \
-		echo "📝 Example: make ai \"このリポジトリの概要を教えて\""; \
-		echo "📝 Example: SYSTEM_PROMPT=\"あなたは優秀なコードレビュアーです\" make ai \"コードを解析して\""; \
-		exit 1; \
-	fi
 	@echo "🚀 Starting Claude AI Query..."
-	@echo "================================"
 	@QUERY="$(wordlist 2,999,$(MAKECMDGOALS))"; \
 	SYSTEM_PROMPT="$${SYSTEM_PROMPT:-あなたは最高のエンジニアです。}"; \
-	echo "💭 Query: $$QUERY"; \
-	echo "🧠 System Prompt: $$SYSTEM_PROMPT"; \
+	REPO_OWNER="$${GITHUB_REPO_OWNER:-Yoshida24}"; \
+	REPO_NAME="$${GITHUB_REPO_NAME:-claude-code-for-repository-talk}"; \
+	echo "💭 System Prompt: $$SYSTEM_PROMPT Query: $$QUERY"; \
+	echo "📁 Repository: $$REPO_OWNER/$$REPO_NAME"; \
+	echo "🔗 Actions: https://github.com/$$REPO_OWNER/$$REPO_NAME/actions"; \
 	echo ""; \
-	echo "📤 Dispatching to GitHub Actions..."; \
-	DISPATCH_PAYLOAD=$$(printf '{"event_type": "claude-query", "client_payload": {"query": "%s", "system_prompt": "%s"}}' "$$QUERY" "$$SYSTEM_PROMPT"); \
-	DISPATCH_RESULT=$$(echo "$$DISPATCH_PAYLOAD" | gh api --method POST --header "Accept: application/vnd.github.v3+json" /repos/Yoshida24/claude-code-for-repository-talk/dispatches --input - 2>&1); \
-	if [ $$? -eq 0 ]; then \
-		echo "✅ Successfully dispatched to GitHub Actions"; \
+	echo "📤 Dispatching to GitHub Actions. Please wait a few minutes..."; \
+	RESULT=$$(CLAUDE_QUERY="$$QUERY" \
+		CLAUDE_SYSTEM_PROMPT="$$SYSTEM_PROMPT" \
+		GITHUB_REPO_OWNER="$$REPO_OWNER" \
+		GITHUB_REPO_NAME="$$REPO_NAME" \
+		node scripts/query.js 2>&1); \
+	if echo "$$RESULT" | grep -q '"success":true'; then \
+		echo "✅ Query execution completed successfully!"; \
+		echo ""; \
+		echo "🤖 Claude AI Response:"; \
+		echo "======================="; \
+		echo "$$RESULT" | jq -r '.claudeOutput' 2>/dev/null || echo "$$RESULT"; \
+		echo ""; \
+		RUN_URL=$$(echo "$$RESULT" | jq -r '.url' 2>/dev/null); \
+		if [ "$$RUN_URL" != "null" ] && [ -n "$$RUN_URL" ]; then \
+			echo "🔗 View full logs: $$RUN_URL"; \
+		fi; \
 	else \
-		echo "❌ Failed to dispatch: $$DISPATCH_RESULT"; \
+		echo "❌ Query execution failed:"; \
+		echo "$$RESULT" | jq -r '.error' 2>/dev/null || echo "$$RESULT"; \
 		exit 1; \
-	fi; \
-	echo ""; \
-	echo "⏳ Waiting for Action to start..."; \
-	sleep 5; \
-	echo "🔍 Getting workflow run information..."; \
-	RUN_DATA=$$(gh run list --repo Yoshida24/claude-code-for-repository-talk --workflow=claude-code.yml --limit=1 --json databaseId,url,status,conclusion); \
-	RUN_ID=$$(echo "$$RUN_DATA" | jq -r '.[0].databaseId'); \
-	RUN_URL=$$(echo "$$RUN_DATA" | jq -r '.[0].url'); \
-	echo "🔗 Action URL: $$RUN_URL"; \
-	echo "🆔 Run ID: $$RUN_ID"; \
-	echo ""; \
-	echo "📊 Monitoring execution progress..."; \
-	while true; do \
-		RUN_INFO=$$(gh run view $$RUN_ID --repo Yoshida24/claude-code-for-repository-talk --json status,conclusion); \
-		STATUS=$$(echo "$$RUN_INFO" | jq -r '.status'); \
-		CONCLUSION=$$(echo "$$RUN_INFO" | jq -r '.conclusion'); \
-		printf "\r🔄 Status: $$STATUS"; \
-		if [ "$$CONCLUSION" != "null" ]; then \
-			printf " | Result: $$CONCLUSION"; \
-		fi; \
-		if [ "$$STATUS" = "completed" ]; then \
-			echo ""; \
-			if [ "$$CONCLUSION" = "success" ]; then \
-				echo "✅ Workflow completed successfully!"; \
-			else \
-				echo "❌ Workflow failed with conclusion: $$CONCLUSION"; \
-				exit 1; \
-			fi; \
-			break; \
-		fi; \
-		sleep 5; \
-	done; \
-	echo ""; \
-	echo "🤖 Claude AI Response:"; \
-	echo "======================="; \
-	gh run view $$RUN_ID --repo Yoshida24/claude-code-for-repository-talk --log 2>/dev/null | \
-		awk '/### CLAUDE_RESULT_START ###/{flag=1; next} /### CLAUDE_RESULT_END ###/{flag=0} flag' | \
-		sed 's/^.*[0-9][0-9]:[0-9][0-9]:[0-9][0-9]\.[0-9]*Z[[:space:]]*//g'; \
-	echo ""; \
-	echo "🎉 Query execution completed!"; \
-	echo "🔗 View full logs: $$RUN_URL"
+	fi
 
 # Prevent Make from treating arguments as targets
 %:
