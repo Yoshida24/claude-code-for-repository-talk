@@ -67,15 +67,19 @@ ai:
 				echo "✅ Workflow completed successfully!"; \
 			else \
 				echo "❌ Workflow failed with conclusion: $$CONCLUSION"; \
+				exit 1; \
 			fi; \
 			break; \
 		fi; \
 		sleep 5; \
 	done; \
 	echo ""; \
-	echo "📋 Fetching execution logs..."; \
-	echo "================================"; \
-	gh run view $$RUN_ID --repo Yoshida24/claude-code-for-repository-talk --log; \
+	echo "🤖 Claude AI Response:"; \
+	echo "======================="; \
+	gh run view $$RUN_ID --repo Yoshida24/claude-code-for-repository-talk --log 2>/dev/null | \
+		sed -n '/### CLAUDE_RESULT_START ###/,/### CLAUDE_RESULT_END ###/p' | \
+		sed '1d;$$$$d' | \
+		sed 's/^.*[0-9][0-9]:[0-9][0-9]:[0-9][0-9]\.[0-9]*Z[ \t]*//g'; \
 	echo ""; \
 	echo "🎉 Query execution completed!"; \
 	echo "🔗 View full logs: $$RUN_URL"

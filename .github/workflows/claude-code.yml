@@ -41,13 +41,17 @@ jobs:
           echo ""
           echo "🔄 Executing Claude query..."
           echo ""
+          echo "### CLAUDE_RESULT_START ###"
 
           # Claudeコマンドを実行
           ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" claude -p "$QUERY" --system-prompt "$SYSTEM_PROMPT" 2>&1 || {
             echo "❌ Claude command failed"
+            echo "### CLAUDE_RESULT_END ###"
             exit 1
           }
           
+          echo ""
+          echo "### CLAUDE_RESULT_END ###"
           echo ""
           echo "✅ Query execution completed!"
 
