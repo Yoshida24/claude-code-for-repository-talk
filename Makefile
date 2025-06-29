@@ -77,9 +77,8 @@ ai:
 	echo "🤖 Claude AI Response:"; \
 	echo "======================="; \
 	gh run view $$RUN_ID --repo Yoshida24/claude-code-for-repository-talk --log 2>/dev/null | \
-		sed -n '/### CLAUDE_RESULT_START ###/,/### CLAUDE_RESULT_END ###/p' | \
-		sed '1d;$$$$d' | \
-		sed 's/^.*[0-9][0-9]:[0-9][0-9]:[0-9][0-9]\.[0-9]*Z[ \t]*//g'; \
+		awk '/### CLAUDE_RESULT_START ###/{flag=1; next} /### CLAUDE_RESULT_END ###/{flag=0} flag' | \
+		sed 's/^.*[0-9][0-9]:[0-9][0-9]:[0-9][0-9]\.[0-9]*Z[[:space:]]*//g'; \
 	echo ""; \
 	echo "🎉 Query execution completed!"; \
 	echo "🔗 View full logs: $$RUN_URL"
